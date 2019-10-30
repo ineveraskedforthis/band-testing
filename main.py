@@ -17,95 +17,192 @@ BASE_GROWTH_RATE = 0.0001
 LACK_OF_WATER_DEATH_MOD = 20
 BASE_DEATH_RATE = BASE_GROWTH_RATE / 6
 BASE_FERTILITY_NEAR_RIVERS = 200
-BASE_FOOD = {'gathering': 100,
-             'hunt': 20,
-             'agrari': 0,
-             'anima_dome': 0,
-             'river_fish': 0}
-BASE_FOOD_NEAR_RIVER = {'gathering': 80,
-             'hunt': 2,
-             'agrari': 80,
-             'anima_dome': 0,
-             'river_fish': 20}
-BASE_FOOD_GROWTH_NEAR_RIVER = {'gathering': 80,
-             'hunt': 2,
-             'agrari': 80,
-             'anima_dome': 0,
-             'river_fish': 20}
-BASE_FOOD_GROWTH = {'gathering': 2,
-                    'hunt': 10,
-                    'agrari': 0,
-                    'anima_dome': 0,
-                    'river_fish': 0}
-STARTING_TECH = {'gathering': 3,
-                 'hunt': 4,
-                 'agrari': 0,
-                 'anima_dome': 0,
-                 'river_fish': 0,
-                 'moving_on_water': 0,
+                    
+STARTING_TECH = {'moving_on_water': 0,
                  'water_preservation': 0}
 STARTING_INVENTIONS = {'water_preservation': False,
                       }
-STARTING_POP = {'gathering': NEW_TRIBE_SIZE,
-                'hunt': 0,
-                'agrari': 0,
-                'anima_dome': 0,
-                'river_fish': 0,
-                'bone_crafter': 0,
-                'stone_crafter': 0,
-                'wood_crafter': 0,
-                'wood_cutter': 0}
-EXTRACTING_PRODUCT = {'gathering': [('plants', 1), ('stone', 1)],
-                     'hunt': [('meat', 1), ('raw_hides', 1), ('bone', 1)],
-                     'agrari': [('plants', 1)],
-                     'river_fish': [('fish', 1), ('small_bone', 1)]
-                     'wood_cutter': [('wood', 1)]}
-FOOD_PRODUCING = Set(['gathering', 'hunt', 'agrari', 'anima_dome', 'river_fish'])
-STARTING_INFLUENCE = {'gathering': 100,
-                      'hunt': 100,
-                      'agrari': 100,
-                      'anima_dome': 100,
-                      'river_fish': 100}
-## very abstract for now
-MATERIALS = set(['wood', 'stone', 'bone', 'small_bone'])
-FOOD = set(['meat', 'fish', 'plants'])
-GOODS = set(['weapon', 'small_tools', 'tools'])
-MATERIAL_STOCK = dict()
-STARTING_STOCK = copy(MATERIAL_STOCK)
-for j in GOODS:
-    STARTING_STOCK[j] = copy(MATERIAL_STOCK)
-STARTING_STOCK['food'] = dict()
-for i in FOOD:
-    STARTING_STOCK['food'][i] = 0
-STARTING_STOCK['water'] = 0
 
-BASIC_DEATH_RATE = {'gathering': BASE_DEATH_RATE * 2,
-                    'hunt': BASE_DEATH_RATE * 3,
-                    'agrari': BASE_DEATH_RATE,
-                    'anima_dome': BASE_DEATH_RATE,
-                    'river_fish': BASE_DEATH_RATE}
-ZERO_DICT = {'gathering': 0,
-             'hunt': 0,
-             'agrari': 0,
-             'anima_dome': 0,
-             'river_fish': 0}
-OCC_ID = {'gathering': 0,
-             'hunt': 1,
-             'agrari': 2,
-             'anima_dome': 3,
-             'river_fish': 4}
+
+STARTING_POP = {}
+EXTRACTING_PRODUCT = {}
+TEMPLATE_INFO = {}
+FOOD_PRODUCING = set()
+FOOD_PRODUCING_DETAILED = {}
+BASIC_DEATH_RATE = {}
+ZERO_OCCUPATION_DICT = {}
+OCCUPATIONS = set()
+OCC_ID = {}
+UNUSED_OCC_ID = 0
+EMPTY_RESOURCES = dict()
+RES_TO_STOCK = dict()
+MATERIALS = set()
+FOOD = set()
+GOODS = set()
+
+def add_material(m):
+    MATERIALS.add(m['name'])
+    
+def add_goods(g):
+    GOODS.add(g['name'])
+    
+def add_resource(r):
+    RES_TO_STOCK[r['name']] = r['product']
+    EMPTY_RESOURCES[r['name']] = 0
+
+def add_food(f):
+    FOOD.add(f['name'])
+    
+def stock_list_sum(a):
+    global FOOD
+    global MATERIALS
+    global GOODS
+    stock = dict()
+    stock['food'] = dict()
+    for i in FOOD:
+        stock['food'][i] = 0
+        for s in a:
+            stock['food'][i] += s['food'][i]
+    for i in GOODS:
+        stock[i] = dict()   
+        for j in MATERIALS:
+            stock[i][j] = 0
+            for s in a:
+                stock[i][j] += s[i][j]
+    stock['materials'] = dict()
+    for i in MATERIALS:
+        stock['materials'][i] = 0
+        for s in a:
+            stock['materials'][i] += s['materials'][i]
+    stock['water'] = 0
+    for s in a:
+        stock['water'] += s['water']
+    return stock
+
+def stock_sum(a, b):
+    return stock_list_sum([a, b])
+
+def get_empty_stock():
+    return stock_list_sum([])
+    
+def add_to_stock(s, a, name, mat = None):
+    if name in FOOD:
+        s['food'][name] += math.floor(a)
+    if name in MATERIALS:
+        s['materials'][name] += math.floor(a)
+    if name in GOODS:
+        s[name][mat] += math.floor(a)
+
+def add_pop_occupation(p):
+    global STARTING_POP
+    global STARTING_TECH
+    global EXTRACTING_PRODUCT
+    global TEMPLATE_INFO
+    global FOOD_PRODUCING
+    global FOOD_PRODUCING_DETAILED
+    global BASIC_DEATH_RATE
+    global ZERO_OCCUPATION_DICT
+    global OCC_ID
+    global UNUSED_OCC_ID
+    global OCCUPATIONS
+    OCCUPATIONS.add(p['name'])
+    if 'is_main_pop' in p:
+        STARTING_POP[p['name']] = NEW_TRIBE_SIZE
+    else:
+        STARTING_POP[p['name']] = 0
+    if 'starting_tech' in p:
+        STARTING_TECH[p['name']] = p['starting_tech']
+    else:
+        STARTING_TECH[p['name']] = 0
+    if 'extracting_product' in p:
+        EXTRACTING_PRODUCT[p['name']] = p['extracting_product'].copy()
+        TEMPLATE_INFO[p['name']] = dict()
+        for (res, amount) in p['extracting_product']:
+            for (tmp, amount) in RES_TO_STOCK[res]:
+                TEMPLATE_INFO[p['name']][tmp] = 0
+    if 'production' in p:
+        INPUT[p['name']] = p['input']
+        OUTPUT[p['name']] = p['output']
+    if 'food_producing' in p:
+        FOOD_PRODUCING.add(p['name'])
+        FOOD_PRODUCING_DETAILED[p['name']] = p['food_producing']
+    BASIC_DEATH_RATE[p['name']] = BASE_DEATH_RATE
+    ZERO_OCCUPATION_DICT[p['name']] = 0
+    OCC_ID[p['name']] = UNUSED_OCC_ID
+    UNUSED_OCC_ID += 1
+
+add_material({'name': 'wood'})
+add_material({'name': 'stone'})
+add_material({'name': 'bone'})
+add_material({'name': 'small_bone'})
+
+add_food({'name': 'meat'})
+add_food({'name': 'fish'})
+add_food({'name': 'plants'})
+
+add_goods({'name': 'weapon'})
+add_goods({'name': 'small_tools'})
+add_goods({'name': 'tools'})
+
+add_resource({'name': 'game', 'product': [('meat', 1), ('raw_hides', 1), ('bone', 1)]})
+add_resource({'name': 'wild_plants', 'product': [('plants', 1)]})
+add_resource({'name': 'plants', 'product': [('plants', 1)]})
+add_resource({'name': 'river_fish', 'product': [('fish', 1), ('small_bone', 1)]})
+add_resource({'name': 'wood', 'product': [('wood', 1)]})
+    
+add_pop_occupation({'name': 'gathering',
+                    'is_main_pop': 1,
+                    'extracting_product': [('wild_plants', 1)],
+                    'food_producing': 'plants',
+                    'starting_tech': 3})
+add_pop_occupation({'name': 'hunt',
+                    'extracting_product': [('game', 1)],
+                    'food_producing': 'meat',
+                    'starting_tech': 4})
+add_pop_occupation({'name': 'agrari',
+                    'extracting_product': [('plants', 1)],
+                    'food_producing': 'plants'})
+add_pop_occupation({'name': 'river_fish',
+                    'extracting_product': [('river_fish', 1)],
+                    'food_producing': 'fish'})
+
+STARTING_STOCK = get_empty_stock()
+
+BASE_RES = EMPTY_RESOURCES.copy()
+BASE_RES['game'] = 12
+BASE_RES['fish'] = 0
+BASE_RES['plants'] = 0
+BASE_RES['wild_plants'] = 100
+
+BASE_RES_RIVER = EMPTY_RESOURCES.copy()
+BASE_RES_RIVER['game'] = 12
+BASE_RES_RIVER['fish'] = 20
+BASE_RES_RIVER['plants'] = 80
+BASE_RES_RIVER['wild_plants'] = 80
+
+BASE_RES_GROWTH = EMPTY_RESOURCES.copy()
+BASE_RES_GROWTH['game'] = 12
+BASE_RES_GROWTH['wild_plants'] = 10
+
+BASE_RES_GROWTH_RIVER = EMPTY_RESOURCES.copy()
+BASE_RES_GROWTH_RIVER['game'] = 12
+BASE_RES_GROWTH_RIVER['river_fish'] = 20
+
 BASIC_COLOR = (250, 250, 250)
+
 ORGA_THREE = 80
 ORGA_GAIN_BASE_PROBABILITY = 0.001
-
-
 MAX_ORGA = 0
-TOTAL_POPULATION = ZERO_DICT.copy()
-TOTAL_POPULATION_GRAPH = [(ZERO_DICT.copy(), False) for i in range(400)]
+
+TOTAL_POPULATION = ZERO_OCCUPATION_DICT.copy()
+TOTAL_POPULATION_GRAPH = [(ZERO_OCCUPATION_DICT.copy(), False) for i in range(400)]
 
 DRAW_GRAPH = False
 DRAW_RIVERS = False
-MAP_MODE = 0
+DRAW_MAP = False
+PAUSE = True
+MAP_MODE = 1
+EPS = 0.0000001
 
 def norm(v):
     return numpy.sqrt(v[0] ** 2 + v[1] ** 2)
@@ -158,11 +255,10 @@ class Band:
         self.pop = copy(pop)
         self.tech = copy(tech)
         self.inventions = copy(inventions)
-        self.inside_influence = copy(STARTING_INFLUENCE)
         self.death_rate = copy(BASIC_DEATH_RATE)
-        self.growth_progress = copy(ZERO_DICT)
-        self.death_progress = copy(ZERO_DICT)
-        self.stock = copy(STARTING_STOCK)
+        self.growth_progress = copy(ZERO_OCCUPATION_DICT)
+        self.death_progress = copy(ZERO_OCCUPATION_DICT)
+        self.stock = get_empty_stock()
         self.organization = 1
         self.sedentary = False
         self.push = 0
@@ -202,17 +298,17 @@ class Band:
         if self.del_flag:
             return
             
-        nutrient_value, water, info = self.gather_update()
+        nutrient_value, water, info, info_max = self.gather_update()
         self.production_update()
         self.flag_update(nutrient_value, water)
         self.migrate_update()
-        f = self.size_update()
-        if not f:
+        alive = self.size_update()
+        if not alive:
             return
-        self.tech_update(nutrient_value)
-        self.update_pop_occupation(info)
-        self.orga_update()   
-        self.split_update()        
+        self.tech_update()
+        self.update_pop_occupation(info, info_max)
+        self.orga_update()
+        self.split_update()
         self.stock_preservation_update()
     
     def flag_update(self, nv, water):
@@ -224,6 +320,8 @@ class Band:
             self.flag_enough_water = True
         else:
             self.flag_enough_water = False
+        self.nutrient_per_being = nv / self.size
+        
         
     def size_update(self):
         s = self.size
@@ -234,8 +332,8 @@ class Band:
             self.growth_progress[i] += BASE_GROWTH_RATE * (min(food_for_this_pop, water_for_this_pop) - self.pop[i] / 2) * 2
             if water_for_this_pop < self.pop[i]:
                 self.death_progress[i] += self.pop[i] / LACK_OF_WATER_DEATH_MOD
-            self.substract_food(food_for_this_pop)
-            self.substract_water(water_for_this_pop)
+            self.change_food(-food_for_this_pop)
+            self.change_water(-water_for_this_pop)
             t = math.floor(self.growth_progress[i])
             d = math.floor(self.death_progress[i])
             self.pop[i] = max(0, self.pop[i] + (t - d))
@@ -246,10 +344,30 @@ class Band:
             return False
         return True
     
+    def change_water(self, x):
+        self.stock['water'] += x
+        if self.stock['water'] < 0:
+            self.stock['water'] = 0
+        
+    def change_food(self, n):
+        s = self.food_stock
+        if s == 0 or n == 0:
+            return
+        for f in FOOD:
+            x = self.stock['food'][f]
+            self.stock['food'][f] += math.floor(x / s * n)
+            if self.stock['food'][f] < 0:
+                self.stock['food'][f] = 0
+        
+    def production_update(self):
+        pass
+    
     def gather_update(self):
-        a, info = self.world.extract(self.x, self.y, self.pop, self.tech)
+        a, info, info_max = self.world.extract(self.x, self.y, self.pop, self.tech)
         self.stock = stock_sum(self.stock, a)
-        return sum(a['food'][i] for i in FOOD), a['water'], info
+        water = self.world.extract_water(self.x, self.y, self.size)
+        self.stock['water'] += water
+        return sum(a['food'][i] for i in FOOD), water, info, info_max
     
     def orga_update(self):
         d = random.random()
@@ -275,7 +393,7 @@ class Band:
                     x = possible_destination[d][0]
                     y = possible_destination[d][1]
                     self.world.occupied_land[x][y] = True
-                    new_pop = copy(ZERO_DICT)
+                    new_pop = copy(ZERO_OCCUPATION_DICT)
                     for i in new_pop:
                         new_pop[i] = math.floor(self.pop[i] * 0.5 / self.organization)
                         self.pop[i] = self.pop[i] - new_pop[i]
@@ -308,7 +426,7 @@ class Band:
                             tmp.push += self.push + 2
     
     def tech_update(self):
-        if nutrient_value >= self.size and self.sedentary is False:
+        if self.flag_enough_food and self.flag_enough_water and self.sedentary is False:
             d = random.random()
             if d < 0.00001:
                 self.sedentary = True
@@ -345,23 +463,32 @@ class Band:
             if d < math.log(self.water_stock // 100 + 1):
                 self.inventions['water_preservation'] = True
     
-    def update_pop_occupation(self, info):
+    def update_pop_occupation(self, info, info_max):
+        if self.nutrient_per_being > 1.5:
+            pass
+        else:
+            pass
+            
         mi = -1
-        for i in info:
-            if mi == -1 or info[mi] > info[i] and self.pop[i] != 0:
+        for i in FOOD_PRODUCING:
+            food_tag = FOOD_PRODUCING_DETAILED[i]
+            if (mi == -1 or info[mi][mi_food_tag] > info[i][food_tag]) and self.pop[i] != 0:
                 mi = i 
+                mi_food_tag = food_tag
         ma = -1
-        for i in info:
-            if ma == -1 or info[ma] < info[i]:
+        for i in FOOD_PRODUCING:
+            food_tag = FOOD_PRODUCING_DETAILED[i]
+            if ma == -1 or info[ma][ma_food_tag] < info[i][food_tag] and info[i][food_tag] > info_max[i][food_tag] - EPS:
                 ma = i 
-        if info[ma] > 0:    
+                ma_food_tag = food_tag
+        if mi != -1 and info[ma][ma_food_tag] > 0:
             self.pop[mi] -= 1
             self.pop[ma] += 1
     
     def stock_preservation_update(self):
         for i in FOOD:
             self.stock['food'][i] //= 2
-        self.stock['water'] = self.stock['water']max(0, 1)
+        self.stock['water'] = self.stock['water'] * self.tech['water_preservation']
     
     @property
     def color(self):
@@ -381,10 +508,9 @@ class World:
         self.color = dict()
         self.events = []
         self.last_id = 0
-        self.food = [[copy(BASE_FOOD) for i in range(1000)] for j in range(1000)]
-        self.food_limit = [[copy(BASE_FOOD) for i in range(1000)] for j in range(1000)]
+        self.res = [[copy(EMPTY_RESOURCES) for i in range(1000)] for j in range(1000)]
+        self.res_limit = [[copy(EMPTY_RESOURCES) for i in range(1000)] for j in range(1000)]
         self.fertility = [[0 for i in range(1000)] for j in range(1000)]
-        self.food_growth_rate = [[copy(BASE_FOOD_GROWTH) for i in range(1000)] for j in range(1000)]
         self.occupied_land = [[False for i in range(1000)] for j in range(1000)]
         self.water = [[False for i in range(1000)] for j in range(1000)]
         self.near_river = [[False for i in range(1000)] for j in range(1000)]
@@ -399,31 +525,26 @@ class World:
                 self.init_pixel(x, y)
     
     def init_pixel(self, x, y):
+        if self.valid_for_life(x, y):
+            self.res[x][y] = BASE_RES.copy()
+            self.res_limit[x][y] = BASE_RES.copy()
         for d in directions:
             if self.inside_map(x + d[0], y + d[1]):
                 if 0 < sum_rgb(self.rivers[x + d[0]][y + d[1]]) < 540:
                     self.water[x][y] = True
                     self.near_river[x][y] = True
-                    self.food[x][y]['river_fish'] += 20
-                    self.food_limit[x][y]['river_fish'] += BASE_FOOD_NEAR_RIVER['river_fish']
-                    self.food_growth_rate[x][y]['river_fish'] += BASE_FOOD_GROWTH_NEAR_RIVER['river_fish']
-                    self.food[x][y]['gathering'] += BASE_FOOD_NEAR_RIVER['gathering']
-                    self.food_limit[x][y]['gathering'] += BASE_FOOD_NEAR_RIVER['gathering']
-                    self.food[x][y]['agrari'] += BASE_FOOD_NEAR_RIVER['agrari']
-                    self.food_limit[x][y]['agrari'] += BASE_FOOD_NEAR_RIVER['agrari']
+                    for i in EMPTY_RESOURCES:
+                        self.res[x][y][i] += BASE_RES_RIVER[i]
+                        self.res_limit[x][y][i] += BASE_RES_RIVER[i]
                     self.fertility[x][y] = BASE_FERTILITY_NEAR_RIVERS
+                    
         if sum_rgb(self.rivers[x][y]) > 600:
             self.water[x][y] = True
             self.near_river[x][y] = True
-            self.food[x][y]['river_fish'] += 20
-            self.food_limit[x][y]['river_fish'] += BASE_FOOD_NEAR_RIVER['river_fish']
-            self.food_growth_rate[x][y]['river_fish'] += BASE_FOOD_GROWTH_NEAR_RIVER['river_fish']
-            self.food[x][y]['gathering'] += BASE_FOOD_NEAR_RIVER['gathering']
-            self.food_limit[x][y]['gathering'] += BASE_FOOD_NEAR_RIVER['gathering']
-            self.food[x][y]['agrari'] += BASE_FOOD_NEAR_RIVER['agrari']
-            self.food_limit[x][y]['agrari'] += BASE_FOOD_NEAR_RIVER['agrari']
+            for i in EMPTY_RESOURCES:
+                self.res[x][y][i] += BASE_RES_RIVER[i]
+                self.res_limit[x][y][i] += BASE_RES_RIVER[i]
             self.fertility[x][y] = BASE_FERTILITY_NEAR_RIVERS
-        
     
     def add_agent(self, obj):
         self.agents[obj.id] = obj
@@ -524,7 +645,7 @@ class World:
         global MAX_ORGA
         global TOTAL_POPULATION
         global TOTAL_POPULATION_GRAPH
-        TOTAL_POPULATION = ZERO_DICT.copy()
+        TOTAL_POPULATION = ZERO_OCCUPATION_DICT.copy()
         for i in self.events:
             if i['type'] == 'new_band':
                 band = Band(self, i['x'], i['y'], i['pop'], i['tech'], i['inventions'], i['tribe'])
@@ -596,14 +717,28 @@ class World:
     
     def update_pixel(self, x, y):
         need_update = False
-        for i in self.food[x][y]:
-            if i == 'gathering' or i == 'agrari':
-                if self.food[x][y][i] <= self.food_limit[x][y][i]:
-                    self.food[x][y][i] += self.fertility[x][y]
+        for i in EMPTY_RESOURCES:
+            limit = self.res_limit[x][y][i]
+            fer = self.fertility[x][y]
+            if i == 'wild_plants':
+                if self.season != 0:
+                    self.res[x][y][i] += fer // 2
+                else:
+                    self.res[x][y][i] += fer
+                if self.res[x][y][i] > limit:
+                    self.res[x][y][i] = limit
+                if self.res[x][y][i] < limit and fer != 0:
                     need_update = True
-            else:
-                if self.food[x][y][i] <= self.food_limit[x][y][i]:
-                    self.food[x][y][i] += self.food_growth_rate[x][y][i]
+            if i == 'plants':
+                if self.season == 0:
+                    self.res[x][y][i] += self.fertility[x][y]
+                if self.res[x][y][i] > limit:
+                    self.res[x][y][i] = limit
+                if fer != 0 and self.res[x][y][i] < limit:
+                    need_update = True
+            if i == 'river_fish' or i == 'game':
+                self.res[x][y][i] = min(limit, self.res[x][y][i] + limit // 10) 
+                if self.res[x][y][i] < limit:
                     need_update = True
         if not need_update:
             self.new_event({'type': 'stop_update_pixel', 'x': x, 'y': y})
@@ -632,38 +767,39 @@ class World:
     def extract(self, x, y, pop, tech):
         self.pixel_needs_update.add((x, y))
         result = 0
-        info = ZERO_DICT.copy()
-        stock = STARTING_STOCK.copy()
-        for i in EXTRACTING_PRODUCT:
-            for j in EXTRACTING_PRODUCT[i]:
-                a = math.floor(j[1] * pop[i] * tech[i])
-                a = math.floor(a * self.get_season_production_mult(j[0]))
-                stock[j[0]] += a
-        #gathering
-        stock['food']['
-        for i in pop:
-            a = math.floor(pop[i] * tech[i])
-            if ((self.season != 0) or (self.season != 1)) and i == 'gathering':
-                a //= 2
-            if self.season != 0 and (i == 'agrari'):
-                a = 0
-            if self.food[x][y][i] > a:
-                self.food[x][y][i] -= a 
-            else:
-                a = self.food[x][y][i]
-                self.food[x][y][i] = 0
-            if pop[i] != 0:
-                info[i] = a / pop[i]
-            else:
-                info[i] = max(self.food[x][y][i], tech[i])
-            result += a
-        return math.floor(result), info
+        info = TEMPLATE_INFO.copy()
+        info_max = TEMPLATE_INFO.copy()
+        stock = get_empty_stock()
+        for i in OCCUPATIONS:
+            for (res, res_amount) in EXTRACTING_PRODUCT[i]:
+                max_amount_per_worker = res_amount * tech[i] * self.get_season_extraction_mult(res)
+                res_amount_extracted = math.floor(pop[i] * max_amount_per_worker)
+                if res_amount_extracted > self.res[x][y][res]:
+                    res_amount_extracted = self.res[x][y][res]
+                # if pop[i] != 0 and  res_amount_extracted / pop[i] < 1.5 - EPS and self.fertility[x][y] != 0:
+                    # print(i)
+                    # print(res_amount, tech[i], self.get_season_extraction_mult(res))
+                    # print(max_amount_per_worker)
+                    # print(pop[i])
+                    # print(res_amount_extracted, '|', self.res[x][y][res])
+                    # print(res_amount_extracted / pop[i])
+                self.res[x][y][res] -= res_amount_extracted
+                for (name, amount) in RES_TO_STOCK[res]:
+                    a = res_amount_extracted * amount
+                    add_to_stock(stock, a, name)
+                    if pop[i] != 0:
+                        info[i][name] = a / pop[i]
+                    if math.floor(max_amount_per_worker) > self.res[x][y][res]:
+                        info_max[i][name] += self.res[x][y][res] * amount
+                    else:
+                        info_max[i][name] += max_amount_per_worker * amount
+        return stock, info, info_max
         
-    def get_season_production_mult(self, typ):
-        if ((self.season != 0) or (self.season != 1)) and i == 'plant':
+    def get_season_extraction_mult(self, typ):
+        if ((self.season != 0) or (self.season != 1)) and (typ == 'plants' or typ == 'wild_plants'):
             return 0.5
+        return 1
         
-    
     def extract_water(self, x, y, size):
         if self.water[x][y]:
             return size * 2
@@ -728,20 +864,26 @@ while True:
         if event.type == pygame.KEYDOWN:
             if event.key == K_g:
                 DRAW_GRAPH = not DRAW_GRAPH
+            if event.key == K_m:
+                DRAW_MAP = not DRAW_MAP
             if event.key == K_LEFT:
                 MAP_MODE = (MAP_MODE + 1) % 2
             if event.key == K_r:
                 DRAW_RIVERS = not DRAW_RIVERS
-    world.update()
+            if event.key == K_p:
+                PAUSE = not PAUSE
+    if not PAUSE:
+        world.update()
     screen.fill((0, 0, 0))
-    # screen.blit(background, (0, 0))
+    if DRAW_MAP:
+        screen.blit(background, (0, 0))
     if DRAW_RIVERS:
         screen.blit(rivers, (0, 0))
     world.draw()
     text_org = myfont.render('MAX_ORGA ' + str(MAX_ORGA), False, (100, 100, 100))
-    text_population = myfont.render('POPULA ' + str(sum(TOTAL_POPULATION[i] for i in ZERO_DICT)), False, (100, 100, 100))
+    text_population = myfont.render('POPULA ' + str(sum(TOTAL_POPULATION[i] for i in OCCUPATIONS)), False, (100, 100, 100))
     if len(world.agents) != 0:
-        medium_size = sum(TOTAL_POPULATION[i] for i in ZERO_DICT) // len(world.agents)
+        medium_size = sum(TOTAL_POPULATION[i] for i in OCCUPATIONS) // len(world.agents)
     else:
         medium_size = -1
     text_medium_size = myfont.render('MED_POPU ' + str(medium_size), False, (100, 100, 100))
