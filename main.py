@@ -12,11 +12,11 @@ directions = [[-1, 0], [+1, 0], [0, -1], [0, +1], [-1, -1], [+1, +1], [+1, -1], 
 # INFLUENCE_RANGE = 1.5
 INFLUENCE_RANGE = 5
 TRIBE_SPLIT_LIMIT = 80
-NEW_TRIBE_SIZE = 8000
+NEW_TRIBE_SIZE = 100000
 BASE_GROWTH_RATE = 0.0001
 LACK_OF_WATER_DEATH_MOD = 20
-BASE_DEATH_RATE = BASE_GROWTH_RATE / 6
-BASE_FERTILITY_NEAR_RIVERS = 200
+BASE_DEATH_RATE = BASE_GROWTH_RATE / 15
+# BASE_FERTILITY_NEAR_RIVERS = 50
                     
 STARTING_TECH = {'moving_on_water': 0,
                  'water_preservation': 0}
@@ -39,6 +39,8 @@ RES_TO_STOCK = dict()
 MATERIALS = set()
 FOOD = set()
 GOODS = set()
+CRAFT = dict()
+NEED_TOOLS = dict()
 
 def add_material(m):
     MATERIALS.add(m['name'])
@@ -65,7 +67,7 @@ def stock_list_sum(a):
             stock['food'][i] += s['food'][i]
     for i in GOODS:
         stock[i] = dict()   
-        for j in MATERIALS:
+        for j in ['0']:
             stock[i][j] = 0
             for s in a:
                 stock[i][j] += s[i][j]
@@ -92,6 +94,14 @@ def add_to_stock(s, a, name, mat = None):
         s['materials'][name] += math.floor(a)
     if name in GOODS:
         s[name][mat] += math.floor(a)
+
+def get_total_amount_stock(s, a):
+    if a == 'water':
+        return s[a]
+    t = 0
+    for i in s[a]:
+        t += s[a][i]
+    return t
 
 def add_pop_occupation(p):
     global STARTING_POP
@@ -126,6 +136,10 @@ def add_pop_occupation(p):
     if 'food_producing' in p:
         FOOD_PRODUCING.add(p['name'])
         FOOD_PRODUCING_DETAILED[p['name']] = p['food_producing']
+    if 'craft' in p:
+        CRAFT[p['name']] = True
+    if 'need_tools' in p:
+        NEED_TOOLS[p['name']] = p['need_tools']
     BASIC_DEATH_RATE[p['name']] = BASE_DEATH_RATE
     ZERO_OCCUPATION_DICT[p['name']] = 0
     OCC_ID[p['name']] = UNUSED_OCC_ID
@@ -148,7 +162,7 @@ add_resource({'name': 'game', 'product': [('meat', 1), ('raw_hides', 1), ('bone'
 add_resource({'name': 'wild_plants', 'product': [('plants', 1)]})
 add_resource({'name': 'plants', 'product': [('plants', 1)]})
 add_resource({'name': 'river_fish', 'product': [('fish', 1), ('small_bone', 1)]})
-add_resource({'name': 'wood', 'product': [('wood', 1)]})
+add_resource({'name': 'forest', 'product': [('wood', 10)]})
     
 add_pop_occupation({'name': 'gathering',
                     'is_main_pop': 1,
@@ -165,28 +179,34 @@ add_pop_occupation({'name': 'agrari',
 add_pop_occupation({'name': 'river_fish',
                     'extracting_product': [('river_fish', 1)],
                     'food_producing': 'fish'})
+add_pop_occupation({'name': 'craft', 
+                    'craft': 1})
+add_pop_occupation({'name': 'woodcutter',
+                    'extracting_product': [('forest', 1)],
+                    'need_tools': True})
+
 
 STARTING_STOCK = get_empty_stock()
 
 BASE_RES = EMPTY_RESOURCES.copy()
 BASE_RES['game'] = 12
-BASE_RES['fish'] = 0
+BASE_RES['river_fish'] = 0
 BASE_RES['plants'] = 0
-BASE_RES['wild_plants'] = 100
+BASE_RES['wild_plants'] = 80
 
 BASE_RES_RIVER = EMPTY_RESOURCES.copy()
 BASE_RES_RIVER['game'] = 12
-BASE_RES_RIVER['fish'] = 20
+BASE_RES_RIVER['river_fish'] = 20
 BASE_RES_RIVER['plants'] = 80
-BASE_RES_RIVER['wild_plants'] = 80
+BASE_RES_RIVER['wild_plants'] = 40
 
 BASE_RES_GROWTH = EMPTY_RESOURCES.copy()
 BASE_RES_GROWTH['game'] = 12
-BASE_RES_GROWTH['wild_plants'] = 10
+BASE_RES_GROWTH['wild_plants'] = 20
 
 BASE_RES_GROWTH_RIVER = EMPTY_RESOURCES.copy()
 BASE_RES_GROWTH_RIVER['game'] = 12
-BASE_RES_GROWTH_RIVER['river_fish'] = 20
+BASE_RES_GROWTH_RIVER['river_fish'] = 10
 
 BASIC_COLOR = (250, 250, 250)
 
@@ -200,7 +220,7 @@ TOTAL_POPULATION_GRAPH = [(ZERO_OCCUPATION_DICT.copy(), False) for i in range(40
 DRAW_GRAPH = False
 DRAW_RIVERS = False
 DRAW_MAP = False
-PAUSE = True
+PAUSE = False
 MAP_MODE = 1
 EPS = 0.0000001
 
@@ -219,6 +239,10 @@ class Tribe:
         self._color = color
         self.id = world.get_new_id()
         self.del_flag = False
+    
+    @property
+    def total_size(self):
+        return sum([i.size for i in self.bands])
         
     def update(self):
         for i in self.bands:
@@ -265,10 +289,21 @@ class Band:
         self.flag_enough_food = True
         
         self.del_flag = False
+        self.last_pos = (0, 0)
         
     @property
     def size(self):
         return sum(self.pop[i] for i in self.pop)
+        
+    @property
+    def productive_force(self):
+        s = 0
+        for i in OCCUPATIONS:
+            if i not in CRAFT:
+                continue
+            if CRAFT[i]:
+                s += self.pop[i]
+        return s
         
     @property
     def food_stock(self):
@@ -299,6 +334,12 @@ class Band:
             return
             
         nutrient_value, water, info, info_max = self.gather_update()
+        # print('!!!')
+        # print(self.world.res_limit[self.x][self.y])
+        # print(self.world.res[self.x][self.y])
+        # print(self.tech)
+        # print(info)
+        # print(info_max)
         self.production_update()
         self.flag_update(nutrient_value, water)
         self.migrate_update()
@@ -360,13 +401,21 @@ class Band:
                 self.stock['food'][f] = 0
         
     def production_update(self):
-        pass
+        s = self.productive_force
+        size = self.size
+        if get_total_amount_stock(self.stock, 'tools') <= (self.size) // 2:
+            amount = min(self.stock['materials']['wood'], self.stock['materials']['stone'], s)
+            self.stock['materials']['wood'] -= amount
+            self.stock['materials']['stone'] -= amount
+            self.stock['tools']['0'] += amount
+                
     
     def gather_update(self):
         a, info, info_max = self.world.extract(self.x, self.y, self.pop, self.tech)
         self.stock = stock_sum(self.stock, a)
         water = self.world.extract_water(self.x, self.y, self.size)
         self.stock['water'] += water
+        self.stock['materials']['stone'] += self.size
         return sum(a['food'][i] for i in FOOD), water, info, info_max
     
     def orga_update(self):
@@ -408,10 +457,13 @@ class Band:
         if (not (self.flag_enough_food and self.flag_enough_water) and self.sedentary is False) or self.push > self.size // 10:
             possible_destination = []
             for dv in directions:
+                if self.last_pos[0] == dv[0] and self.last_pos[1] == dv[1]:
+                    continue
                 if self.world.valid_for_life(self.x + dv[0], self.y + dv[1]) and self.world.band_from_coord[self.x + dv[0]][self.y + dv[1]] is None:
                     possible_destination.append([self.x + dv[0], self.y + dv[1]])
             if len(possible_destination) > 0:
                 d = random.randint(0, len(possible_destination) - 1)
+                self.last_pos = (-possible_destination[d][0], -possible_destination[d][1])
                 self.world.occupied_land[self.x][self.y] = False
                 self.world.band_from_coord[self.x][self.y] = None
                 self.x = possible_destination[d][0]
@@ -419,6 +471,7 @@ class Band:
                 self.world.occupied_land[self.x][self.y] = True
                 self.world.band_from_coord[self.x][self.y] = self
             else:
+                self.last_pos = (0, 0)
                 for dv in directions:
                     if self.world.valid_for_life(self.x + dv[0], self.y + dv[1]) and self.world.band_from_coord[self.x + dv[0]][self.y + dv[1]] is None:
                         tmp = self.world.band_from_coord[self.x + dv[0]][self.y + dv[1]]
@@ -435,8 +488,8 @@ class Band:
         for i in self.tech:
             if self.sedentary:
                 d = random.random()
-                if d < 0.5 and self.tech['agrari'] <= 5:
-                    self.tech['agrari'] += 0.1
+                if d < 0.5 and self.tech['agrari'] <= 8:
+                    self.tech['agrari'] += 0.5
                 elif self.tech['agrari'] > 5:
                     d = random.random()
                     if d < 0.001:
@@ -448,12 +501,12 @@ class Band:
             if i == 'river_fish' and self.world.near_river[self.x][self.y]:
                 if self.tech['moving_on_water'] < 1:
                     d = random.random()
-                    if d < 0.01 and self.tech['river_fish'] < 2:
-                        self.tech['river_fish'] += 0.1
+                    if d < 0.05 and self.tech['river_fish'] < 4:
+                        self.tech['river_fish'] += 0.2
                 else:
                     d = random.random()
-                    if d < 0.1 and self.tech['river_fish'] < 4:
-                        self.tech['river_fish'] += 0.1
+                    if d < 0.1 and self.tech['river_fish'] < 6:
+                        self.tech['river_fish'] += 0.5
             else:
                 d = random.random()
                 if d < 0.001:
@@ -464,10 +517,34 @@ class Band:
                 self.inventions['water_preservation'] = True
     
     def update_pop_occupation(self, info, info_max):
-        if self.nutrient_per_being > 1.5:
-            pass
+        if self.nutrient_per_being > 1.7:
+            mi = -1
+            for i in FOOD_PRODUCING:
+                food_tag = FOOD_PRODUCING_DETAILED[i]
+                if (mi == -1 or info[mi][mi_food_tag] > info[i][food_tag]) and self.pop[i] != 0:
+                    mi = i 
+                    mi_food_tag = food_tag
+            if mi != -1 and self.pop[mi] > 0:
+                d = random.random()
+                if d < 0.5:
+                    self.pop['woodcutter'] += 1
+                else:
+                    self.pop['craft'] += 1
+                self.pop[mi] -= 1
         else:
-            pass
+            if self.pop['craft'] > self.pop['woodcutter']:
+                mi = 'craft'
+            else:
+                mi = 'woodcutter'
+            ma = -1
+            for i in FOOD_PRODUCING:
+                food_tag = FOOD_PRODUCING_DETAILED[i]
+                if ma == -1 or info[ma][ma_food_tag] < info[i][food_tag] and info[i][food_tag] > info_max[i][food_tag] - EPS:
+                    ma = i 
+                    ma_food_tag = food_tag
+            if mi != -1 and info[ma][ma_food_tag] > 0 and self.pop[mi] > 0:
+                self.pop[mi] -= 1
+                self.pop[ma] += 1
             
         mi = -1
         for i in FOOD_PRODUCING:
@@ -487,8 +564,10 @@ class Band:
     
     def stock_preservation_update(self):
         for i in FOOD:
-            self.stock['food'][i] //= 2
+            self.stock['food'][i] = math.floor(self.stock['food'][i] * 0.9)
         self.stock['water'] = self.stock['water'] * self.tech['water_preservation']
+        for i in MATERIALS:
+            self.stock['materials'][i] = math.floor(self.stock['materials'][i] * 0.9)
     
     @property
     def color(self):
@@ -499,11 +578,13 @@ class Band:
         return self.tribe.color
 
 class World:
-    def __init__(self, map, rivers):
+    def __init__(self, map, rivers, fer, forest):
         self.map = map
         self.rivers = rivers
         self.agents = dict()
         self.tribes = dict()
+        self.fer_map = fer
+        self.forest_map = forest
         self.color_id = 0
         self.color = dict()
         self.events = []
@@ -536,7 +617,7 @@ class World:
                     for i in EMPTY_RESOURCES:
                         self.res[x][y][i] += BASE_RES_RIVER[i]
                         self.res_limit[x][y][i] += BASE_RES_RIVER[i]
-                    self.fertility[x][y] = BASE_FERTILITY_NEAR_RIVERS
+                    # self.fertility[x][y] = BASE_FERTILITY_NEAR_RIVERS
                     
         if sum_rgb(self.rivers[x][y]) > 600:
             self.water[x][y] = True
@@ -544,7 +625,10 @@ class World:
             for i in EMPTY_RESOURCES:
                 self.res[x][y][i] += BASE_RES_RIVER[i]
                 self.res_limit[x][y][i] += BASE_RES_RIVER[i]
-            self.fertility[x][y] = BASE_FERTILITY_NEAR_RIVERS
+            # self.fertility[x][y] = BASE_FERTILITY_NEAR_RIVERS
+        self.fertility[x][y] = self.fer_map[x][y][3] // 2
+        self.res[x][y]['forest'] = self.forest_map[x][y][3]
+        self.res_limit[x][y]['forest'] = self.forest_map[x][y][3]
     
     def add_agent(self, obj):
         self.agents[obj.id] = obj
@@ -722,16 +806,16 @@ class World:
             fer = self.fertility[x][y]
             if i == 'wild_plants':
                 if self.season != 0:
-                    self.res[x][y][i] += fer // 2
+                    self.res[x][y][i] += fer // 6
                 else:
-                    self.res[x][y][i] += fer
+                    self.res[x][y][i] += fer // 3
                 if self.res[x][y][i] > limit:
                     self.res[x][y][i] = limit
                 if self.res[x][y][i] < limit and fer != 0:
                     need_update = True
             if i == 'plants':
                 if self.season == 0:
-                    self.res[x][y][i] += self.fertility[x][y]
+                    self.res[x][y][i] += fer
                 if self.res[x][y][i] > limit:
                     self.res[x][y][i] = limit
                 if fer != 0 and self.res[x][y][i] < limit:
@@ -739,6 +823,10 @@ class World:
             if i == 'river_fish' or i == 'game':
                 self.res[x][y][i] = min(limit, self.res[x][y][i] + limit // 10) 
                 if self.res[x][y][i] < limit:
+                    need_update = True
+            if i == 'forest':
+                self.res[x][y][i] = min(limit, self.res[x][y][i] + limit // 20) 
+                if (self.res[x][y][i] < limit) and (self.res[x][y][i] + limit // 20 != 0):
                     need_update = True
         if not need_update:
             self.new_event({'type': 'stop_update_pixel', 'x': x, 'y': y})
@@ -771,9 +859,11 @@ class World:
         info_max = TEMPLATE_INFO.copy()
         stock = get_empty_stock()
         for i in OCCUPATIONS:
+            if i not in EXTRACTING_PRODUCT:
+                continue
             for (res, res_amount) in EXTRACTING_PRODUCT[i]:
                 max_amount_per_worker = res_amount * tech[i] * self.get_season_extraction_mult(res)
-                res_amount_extracted = math.floor(pop[i] * max_amount_per_worker)
+                res_amount_extracted = math.floor(pop[i] ** (19/20) * max_amount_per_worker)
                 if res_amount_extracted > self.res[x][y][res]:
                     res_amount_extracted = self.res[x][y][res]
                 # if pop[i] != 0 and  res_amount_extracted / pop[i] < 1.5 - EPS and self.fertility[x][y] != 0:
@@ -840,13 +930,19 @@ ma = numpy.array(mi).tolist()
 riv_raw = Image.open('rivers.png')
 riv = numpy.array(riv_raw).tolist()
 
-world = World(ma, riv)
+fer_raw = Image.open('fertility.png')
+fer = numpy.array(fer_raw).tolist()
+
+forest_raw = Image.open('forest.png')
+forest = numpy.array(forest_raw).tolist()
+
+world = World(ma, riv, fer, forest)
 
 pygame.init()
 pygame.display.set_caption('just another unfinished project. again')
 pygame.font.init()
 myfont = pygame.font.SysFont("Arial", 14)
-band1 = Band(world, 56, 240, STARTING_POP, STARTING_TECH, STARTING_INVENTIONS, None)
+band1 = Band(world, 58, 250, STARTING_POP, STARTING_TECH, STARTING_INVENTIONS, None)
 band1.organization = 1
 
 world.add_agent(band1)
@@ -913,16 +1009,18 @@ while True:
     z = 140
     for j in TOTAL_POPULATION_GRAPH[-1][0]:
         color = hsv_to_rgb_int(OCC_ID[j] * 360 / 10, 1, 1)
-        prof_text = myfont.render(j, False, color)
+        prof_text = myfont.render(j + ' ' + str(TOTAL_POPULATION_GRAPH[-1][0][j]), False, color)
         screen.blit(prof_text, (5, z))
         z += 20
     t = []
     for i in world.tribes:
-        t.append([world.tribes[i].color, i, random.sample(world.tribes[i].centres, 1)[0].id, random.sample(world.tribes[i].centres, 1)[0].size, len(world.tribes[i].bands), random.sample(world.tribes[i].centres, 1)[0].sedentary])
-    t.sort(key = lambda x: -x[4])
+        t.append([world.tribes[i].color, world.tribes[i].total_size])
+    t.sort(key = lambda x: -x[1])
+    screen.blit(myfont.render('tribe_population', False, (100, 100, 100)), (5, z))
+    z += 20
     for i in t:
         color = i[0]
-        num_text = myfont.render(str(i[1]) + ' ' + str(i[2]) + ' ' + str(i[3]) + ' ' + str(i[4]) + ' ' + str(i[5]), False, color)
+        num_text = myfont.render(' '.join(map(str, i[1:])), False, color)
         screen.blit(num_text, (5, z))
         z += 20
     pygame.display.update()
