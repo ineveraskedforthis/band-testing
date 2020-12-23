@@ -8,15 +8,16 @@ import math
 from copy import copy
 from pygame.locals import *
 
+SCREEN_W = 600
+SCREEN_H = 800
+
 directions = [[-1, 0], [+1, 0], [0, -1], [0, +1], [-1, -1], [+1, +1], [+1, -1], [-1, +1]]
-# INFLUENCE_RANGE = 1.5
 INFLUENCE_RANGE = 5
 TRIBE_SPLIT_LIMIT = 80
 NEW_TRIBE_SIZE = 100000
 BASE_GROWTH_RATE = 0.0001
 LACK_OF_WATER_DEATH_MOD = 20
 BASE_DEATH_RATE = BASE_GROWTH_RATE / 15
-# BASE_FERTILITY_NEAR_RIVERS = 50
                     
 STARTING_TECH = {'moving_on_water': 0,
                  'water_preservation': 0}
@@ -42,6 +43,15 @@ GOODS = set()
 CRAFT = dict()
 NEED_TOOLS = dict()
 
+morae = [i + j for i in ['s', 'k', 't', 'm', 'n', 'h', 'r', ''] for j in ['i', 'e', 'u', 'a', 'o']]
+
+def generate_name():
+    n = random.randint(2, 4)
+    tmp = ''
+    for i in range(n):
+        tmp += random.choice(morae)
+    return tmp
+
 def add_material(m):
     MATERIALS.add(m['name'])
     
@@ -55,11 +65,14 @@ def add_resource(r):
 def add_food(f):
     FOOD.add(f['name'])
     
-def stock_list_sum(a):
+def stock_list_sum(a, in_place = False):
     global FOOD
     global MATERIALS
     global GOODS
-    stock = dict()
+    if in_place:
+        stock = a[0]
+    else:
+        stock = dict()
     stock['food'] = dict()
     for i in FOOD:
         stock['food'][i] = 0
@@ -81,7 +94,9 @@ def stock_list_sum(a):
         stock['water'] += s['water']
     return stock
 
-def stock_sum(a, b):
+def stock_sum(a, b, in_place = False):
+    if in_place:
+        return stock_list_sum([a, b], True)
     return stock_list_sum([a, b])
 
 def get_empty_stock():
@@ -94,6 +109,9 @@ def add_to_stock(s, a, name, mat = None):
         s['materials'][name] += math.floor(a)
     if name in GOODS:
         s[name][mat] += math.floor(a)
+
+def stock_transfer(a, b):
+    stock_sum(b, a, True)
 
 def get_total_amount_stock(s, a):
     if a == 'water':
@@ -154,7 +172,7 @@ add_food({'name': 'meat'})
 add_food({'name': 'fish'})
 add_food({'name': 'plants'})
 
-add_goods({'name': 'weapon'})
+add_goods({'name': 'weapons'})
 add_goods({'name': 'small_tools'})
 add_goods({'name': 'tools'})
 
@@ -211,7 +229,10 @@ BASE_RES_GROWTH_RIVER['river_fish'] = 10
 BASIC_COLOR = (250, 250, 250)
 
 ORGA_THREE = 80
-ORGA_GAIN_BASE_PROBABILITY = 0.001
+# ORGA_GAIN_BASE_PROBABILITY = 0.001
+# SEDENTARY_BASE_PROBABILITY = 0.00001
+ORGA_GAIN_BASE_PROBABILITY = 0.1
+SEDENTARY_BASE_PROBABILITY = 0.1
 MAX_ORGA = 0
 
 TOTAL_POPULATION = ZERO_OCCUPATION_DICT.copy()
@@ -229,20 +250,40 @@ def norm(v):
 
 def dist(a, b):
     return numpy.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
-    
+
+class TribeUnion:
+    def __init__(self, world, tribes, color):
+        pass
+
+
+class Army:
+    def __init__(self, world, x, y, size):
+        self.world = world
+        self.x = x
+        self.y = y
+        self.size = size
+
 class Tribe:
-    def __init__(self, world, centres, color):
+    def __init__(self, world, centres, color, overlord = None):
         self.is_influence_agent = True
         self.world = world
         self.centres = set(copy(centres))
+        self.main_centre = centres[0]
         self.bands = set(copy(centres))
         self._color = color
         self.id = world.get_new_id()
+        self.name = generate_name()
         self.del_flag = False
+        self.overlord = overlord
+        self.soldiers = Army(self.world, self.main_centre.x, self.main_centre.y, 0)
     
     @property
     def total_size(self):
         return sum([i.size for i in self.bands])
+        
+    def get_soldiers(self):
+        return self.main_centre.stock['weapons']['0']
+        return self.soldiers.size
         
     def update(self):
         for i in self.bands:
@@ -251,6 +292,12 @@ class Tribe:
                 d = min(d, dist(i, j))
             if d > INFLUENCE_RANGE:
                 self.world.new_event({'type': 'band_exit_tribe', 'band_id': i.id, 'tribe_id': self.id})
+            else:
+                stock_transfer(i.stock, self.main_centre.stock)
+        if self.main_centre.stock['weapons']['0'] >= 1:
+            if self.main_centre.get_man():
+                self.soldiers.size += 1
+                self.main_centre.stock['weapons'] -= 1       
     
     def join(self, x):
         self.bands.add(x)
@@ -287,6 +334,7 @@ class Band:
         self.sedentary = False
         self.push = 0
         self.flag_enough_food = True
+        self.productivity_mult = 1
         
         self.del_flag = False
         self.last_pos = (0, 0)
@@ -315,6 +363,16 @@ class Band:
     @property
     def water_stock(self):
         return self.stock['water']
+        
+    def get_man(self):
+        mp = 'gathering'
+        for i in OCCUPATIONS:
+            if self.pop[i] > self.pop[mp]:
+                mp = i
+        if self.pop[mp] > 0:
+            self.pop[mp] -= 1
+            return True
+        return False
         
     def substract_water(self, x):
         self.stock['water'] = max(0, self.stock['water'] - x)
@@ -362,6 +420,7 @@ class Band:
         else:
             self.flag_enough_water = False
         self.nutrient_per_being = nv / self.size
+        self.productivity_mult = 1 + get_total_amount_stock(self.stock, 'tools') / self.size
         
         
     def size_update(self):
@@ -401,21 +460,29 @@ class Band:
                 self.stock['food'][f] = 0
         
     def production_update(self):
-        s = self.productive_force
+        s = math.floor(self.productive_force * self.productivity_mult)
         size = self.size
+        print(self.stock['materials']['wood'], self.stock['materials']['stone'], s) 
         if get_total_amount_stock(self.stock, 'tools') <= (self.size) // 2:
             amount = min(self.stock['materials']['wood'], self.stock['materials']['stone'], s)
             self.stock['materials']['wood'] -= amount
             self.stock['materials']['stone'] -= amount
             self.stock['tools']['0'] += amount
+        else:
+            amount = min(self.stock['materials']['wood'], self.stock['materials']['stone'], s)
+            self.stock['materials']['wood'] -= amount
+            self.stock['materials']['stone'] -= amount
+            self.stock['weapons']['0'] += amount
                 
     
     def gather_update(self):
-        a, info, info_max = self.world.extract(self.x, self.y, self.pop, self.tech)
+        a, info, info_max = self.world.extract(self.x, self.y, self.pop, self.tech, self.productivity_mult)
         self.stock = stock_sum(self.stock, a)
         water = self.world.extract_water(self.x, self.y, self.size)
         self.stock['water'] += water
-        self.stock['materials']['stone'] += self.size
+        self.stock['materials']['stone'] += math.floor(self.size * self.productivity_mult)
+        if info['woodcutter']['wood'] != 0:
+            print('!!!!')
         return sum(a['food'][i] for i in FOOD), water, info, info_max
     
     def orga_update(self):
@@ -481,7 +548,7 @@ class Band:
     def tech_update(self):
         if self.flag_enough_food and self.flag_enough_water and self.sedentary is False:
             d = random.random()
-            if d < 0.00001:
+            if d < SEDENTARY_BASE_PROBABILITY:
                 self.sedentary = True
             if self.tech['agrari'] >= 1 and d < 0.05:
                 self.sedentary = True
@@ -517,7 +584,7 @@ class Band:
                 self.inventions['water_preservation'] = True
     
     def update_pop_occupation(self, info, info_max):
-        if self.nutrient_per_being > 1.7:
+        if self.nutrient_per_being > 2:
             mi = -1
             for i in FOOD_PRODUCING:
                 food_tag = FOOD_PRODUCING_DETAILED[i]
@@ -586,6 +653,7 @@ class World:
         self.fer_map = fer
         self.forest_map = forest
         self.color_id = 0
+        self.tribe_color_id = 0
         self.color = dict()
         self.events = []
         self.last_id = 0
@@ -641,9 +709,13 @@ class World:
         self.last_id += 1
         return self.last_id
     
-    def get_free_color(self):
+    def get_free_union_color(self):
         self.color_id += 7
         return hsv_to_rgb_int((self.color_id) * 12 % 360, 0.8, 0.9)
+        
+    def get_free_tribe_color(self):
+        self.tribe_color_id += 7
+        return hsv_to_rgb_int((self.tribe_color_id) * 12 % 360, 0.8, 0.5)
         
     def new_event(self, event):
         self.events.append(event)
@@ -712,7 +784,7 @@ class World:
             for i in range(len(TOTAL_POPULATION_GRAPH)):
                 if TOTAL_POPULATION_GRAPH[i][1]:
                     for j in range(300):
-                        surface[i][499 - j] = (100, 100, 100)
+                        surface[i][SCREEN_H - 1 - j] = (100, 100, 100)
                 z = 0
                 s = 1 + sum(TOTAL_POPULATION_GRAPH[i][0][b] for b in TOTAL_POPULATION_GRAPH[i][0])
                 if s == 1:
@@ -721,7 +793,7 @@ class World:
                 for j in TOTAL_POPULATION_GRAPH[i][0]:
                     color = hsv_to_rgb_int(OCC_ID[j] * 360 / 10, 1, 1)                
                     for k in range(math.floor(lo * TOTAL_POPULATION_GRAPH[i][0][j] / (s - 1) * 5)):
-                        surface[i][max(499 - z, 0)] = color
+                        surface[i][max(SCREEN_H - 1 - z, 0)] = color
                         z += 1
         del surface
         
@@ -750,7 +822,7 @@ class World:
             if i['type'] == 'stop_update_pixel':
                 self.pixel_needs_update.discard((i['x'], i['y']))
             if i['type'] == 'new_tribe':
-                tribe = self.add_tribe(Tribe(self, [self.agents[j] for j in i['centres']], self.get_free_color()))
+                tribe = self.add_tribe(Tribe(self, [self.agents[j] for j in i['centres']], self.get_free_tribe_color()))
                 for j in i['centres']:
                     self.agents[j].tribe = tribe
             if i['type'] == 'join_tribe':
@@ -852,7 +924,7 @@ class World:
             return False
         return True
     
-    def extract(self, x, y, pop, tech):
+    def extract(self, x, y, pop, tech, mult):
         self.pixel_needs_update.add((x, y))
         result = 0
         info = TEMPLATE_INFO.copy()
@@ -862,7 +934,7 @@ class World:
             if i not in EXTRACTING_PRODUCT:
                 continue
             for (res, res_amount) in EXTRACTING_PRODUCT[i]:
-                max_amount_per_worker = res_amount * tech[i] * self.get_season_extraction_mult(res)
+                max_amount_per_worker = res_amount * tech[i] * self.get_season_extraction_mult(res) * mult
                 res_amount_extracted = math.floor(pop[i] ** (19/20) * max_amount_per_worker)
                 if res_amount_extracted > self.res[x][y][res]:
                     res_amount_extracted = self.res[x][y][res]
@@ -946,12 +1018,13 @@ band1 = Band(world, 58, 250, STARTING_POP, STARTING_TECH, STARTING_INVENTIONS, N
 band1.organization = 1
 
 world.add_agent(band1)
-screen = pygame.display.set_mode((500, 500), 0, 32)
+screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), 0, 32)
 screen.fill((255, 255, 255))
 
 background = pygame.image.load(file_name)
 rivers = pygame.image.load('rivers.png')
 screen.blit(background, (0, 0))
+clock = pygame.time.Clock()
 while True:
     for event in pygame.event.get():
         if event.type == QUIT:
@@ -1013,14 +1086,40 @@ while True:
         screen.blit(prof_text, (5, z))
         z += 20
     t = []
-    for i in world.tribes:
-        t.append([world.tribes[i].color, world.tribes[i].total_size])
-    t.sort(key = lambda x: -x[1])
-    screen.blit(myfont.render('tribe_population', False, (100, 100, 100)), (5, z))
-    z += 20
-    for i in t:
-        color = i[0]
-        num_text = myfont.render(' '.join(map(str, i[1:])), False, color)
-        screen.blit(num_text, (5, z))
+    if MAP_MODE == 0 or MAP_MODE == 1:
+        for i in world.tribes:
+            tribe = world.tribes[i]
+            t.append([tribe.color, tribe.total_size, tribe.main_centre.size, len(tribe.bands), tribe.name, tribe.overlord, tribe.get_soldiers()])
+        t.sort(key = lambda x: -x[1])
+        columns = [   5,           90,               180,                    270,              360,        450,            540]
+        screen.blit(myfont.render('tribe_pop', False, (100, 100, 100)), (columns[0], z))
+        screen.blit(myfont.render('centre_pop', False, (100, 100, 100)), (columns[1], z))
+        screen.blit(myfont.render('bands_count', False, (100, 100, 100)), (columns[2], z))
+        screen.blit(myfont.render('name', False, (100, 100, 100)), (columns[3], z))
+        screen.blit(myfont.render('overlord', False, (100, 100, 100)), (columns[4], z))
+        screen.blit(myfont.render('soldiers', False, (100, 100, 100)), (columns[5], z))
         z += 20
+        for i in t:
+            color = i[0]
+            total_pop_text = myfont.render(str(i[1]), False, color)
+            centre_pop_text = myfont.render(str(i[2]), False, color)
+            amount_of_bands_text = myfont.render(str(i[3]), False, color)
+            name_text = myfont.render(i[4], False, color)
+            if i[5] != None:
+                overlord_text = myfont.render(i[5].name, False, i[5].color)
+            else:
+                overlord_text = myfont.render('None', False, color)
+            soldiers_text = myfont.render(str(i[6]), False, color)
+            screen.blit(total_pop_text, (columns[0], z))
+            screen.blit(centre_pop_text, (columns[1], z))
+            screen.blit(amount_of_bands_text, (columns[2], z))
+            screen.blit(name_text, (columns[3], z))
+            screen.blit(overlord_text, (columns[4], z))
+            screen.blit(soldiers_text, (columns[5], z))
+            z += 20
+    elif MAP_MODE == 2:
+        pass
+    fps = myfont.render(str(int(clock.get_fps())), True, (100, 100, 100))
+    screen.blit(fps, (SCREEN_W - 59, 10))
+    clock.tick()
     pygame.display.update()
